@@ -31,27 +31,15 @@ from sklearn.cluster import DBSCAN
 from dface import MTCNN, FaceNet
 from utils import crop_face
 
-#---------- Does not work as expected
-import base64
-from io import BytesIO
+# https://blog.streamlit.io/3-steps-to-fix-app-memory-leaks/
+#from memory_profiler import profile
+#fp = open('memory_profiler_02CP.log', 'w+')
 
+# supress warnings
 warnings.simplefilter(action='ignore', category=FutureWarning)
 
-def get_thumbnail(path):
-    path = "\\\\?\\"+path # This "\\\\?\\" is used to prevent problems with long Windows paths
-    i = Img.open(path)    
-    return i
-
-def image_base64(im):
-    if isinstance(im, str):
-        im = get_thumbnail(im)
-    with BytesIO() as buffer:
-        im.save(buffer, 'jpeg')
-        return base64.b64encode(buffer.getvalue()).decode()
-
-def image_formatter(im):
-    return f'<img src="data:image/jpeg;base64,{image_base64(im)}">'
-#----------
+# adjusting max pixel size elimates PIL.Image.DecompressionBombError
+Img.MAX_IMAGE_PIXELS = 1000000000
 
 class Profile(Enum):
     LEFT_PROFILE = 0
@@ -61,6 +49,7 @@ class Profile(Enum):
     RIGHT_PROFILE = 4
 
 class Cluster(object):
+#    @profile(stream=fp)
     def __init__(self):
 
         # supported image types for clustering
@@ -74,19 +63,10 @@ class Cluster(object):
         print(f"==> Forcing CPU use: self.device='{self.device}'")
 
         # initialize models
-        #self.models_folder = os.path.abspath("./models")
-        #mtcnn_model = self.models_folder + '/mtcnn.pt'
-        #facenet_model = self.models_folder + '/facenet.pt'
-        #self.mtcnn = MTCNN(self.device, model=mtcnn_model)
-        #self.facenet = FaceNet(self.device, model=facenet_model)
-        
-        # initialize models
-        # use for low-side streamlit cloud, otherwise comment out - this will auto-download models
-        self.mtcnn = MTCNN(self.device)
-        self.facenet = FaceNet(self.device)
+        self.models_folder = os.path.abspath("./models")
 
         # yaw, pitch, roll table
-        self.image_df = pd.DataFrame(columns=['Image',
+        self.image_df = pd.DataFrame(columns=[#'Image'
                                               'Name',
                                               'Height',
                                               'Width',
@@ -103,6 +83,15 @@ class Cluster(object):
                                               'Mouth Left',
                                               'Mouth Right'])
 
+    @st.cache
+    def __load_facenet_model(self):
+        return FaceNet(self.device, model=self.models_folder + '/facenet.pt')
+
+    @st.cache
+    def __load_mtcnn_model(self):
+        return MTCNN(self.device, model=self.models_folder + '/mtcnn.pt')
+        
+#    @profile(stream=fp)
     def __get_images(self, image_path):
         self.images = glob.glob(image_path + '/*')
         image_names = []
@@ -122,6 +111,7 @@ class Cluster(object):
 
         return frames, image_names
 
+#    @profile(stream=fp)
     def __find_pose(self, points):
         X=points[0:5]
         Y=points[5:10]
@@ -158,6 +148,7 @@ class Cluster(object):
     
         return yaw, pitch, roll
 
+#    @profile(stream=fp)
     def plot_similarity_grid(self, cos_similarity, input_size):
         n = len(cos_similarity)
         rows = []
@@ -187,6 +178,7 @@ class Cluster(object):
         grid = np.concatenate(rows)
         return grid
         
+#    @profile(stream=fp)
     def visualize_similarity(self, input_size=[128, 128]):
         """
         Plot a similarity matrix of input images
@@ -248,44 +240,47 @@ class Cluster(object):
         self.embeddings = self.facenet.embedding(faces)
         #st.write(len(self.embeddings))
 
-        # calculate cosine similarity matrix
-        self.cos_similarity = np.dot(self.embeddings, self.embeddings.T)
-        self.cos_similarity = self.cos_similarity.clip(min=0, max=1)
-        #st.write(self.cos_similarity)
-        #st.write(self.frame_indices)
+
+        if self.similarity:
+            # calculate cosine similarity matrix
+            self.cos_similarity = np.dot(self.embeddings, self.embeddings.T)
+            self.cos_similarity = self.cos_similarity.clip(min=0, max=1)
+            #st.write(self.cos_similarity)
+            #st.write(self.frame_indices)
+            
+            # plot colorful grid from pair distance values in similarity matrix
+            similarity_grid = self.plot_similarity_grid(self.cos_similarity, input_size)
+            
+            # pad similarity grid with images of faces
+            horizontal_grid = np.hstack([self.frames[i] for i in self.frame_indices])
+            vertical_grid = np.vstack([self.frames[i] for i in self.frame_indices])
+            zeros = np.zeros((*input_size, 3))
+            vertical_grid = np.vstack((zeros, vertical_grid))
+            result = np.vstack((horizontal_grid, similarity_grid))
+            result = np.hstack((vertical_grid, result))
         
-        # plot colorful grid from pair distance values in similarity matrix
-        similarity_grid = self.plot_similarity_grid(self.cos_similarity, input_size)
+            # create similarity directory
+            self.similarity_path = self.imgpath + "/similarity/"
+            if not os.path.isdir(self.similarity_path):
+                os.mkdir(self.similarity_path)
         
-        # pad similarity grid with images of faces
-        horizontal_grid = np.hstack([self.frames[i] for i in self.frame_indices])
-        vertical_grid = np.vstack([self.frames[i] for i in self.frame_indices])
-        zeros = np.zeros((*input_size, 3))
-        vertical_grid = np.vstack((zeros, vertical_grid))
-        result = np.vstack((horizontal_grid, similarity_grid))
-        result = np.hstack((vertical_grid, result))
-    
-        # create similarity directory
-        self.similarity_path = self.imgpath + "/similarity/"
-        if not os.path.isdir(self.similarity_path):
-            os.mkdir(self.similarity_path)
-    
-        # Save image file
-        cv2.imwrite(self.similarity_path + "/test.jpg", result)
+            # Save image file
+            cv2.imwrite(self.similarity_path + "/test.jpg", result)
+            
+            # plot image to web page
+            st.subheader('Similarity Matrix')
+            st.markdown(
+                """
+                Calculate the cosine distance between facial embeddings to determine
+                similarilary between two or more persons. Best results are those of
+                a frontal profile or a slightly turned left or right profile. Extreme
+                profiles or occlussions will result in low similarity scores even
+                for the same person.
+                """)
+            image = Img.open(self.similarity_path + "/test.jpg")
+            st.image(image)
         
-        # plot image to web page
-        st.subheader('Similarity Matrix')
-        st.markdown(
-            """
-            Calculate the cosine distance between facial embeddings to determine
-            similarilary between two or more persons. Best results are those of
-            a frontal profile or a slightly turned left or right profile. Extreme
-            profiles or occlussions will result in low similarity scores even
-            for the same person.
-            """)
-        image = Img.open(self.similarity_path + "/test.jpg")
-        st.image(image)
-        
+#    @profile(stream=fp)
     def find_pose(self):
         """
         """
@@ -312,14 +307,19 @@ class Cluster(object):
                         
             yaw, pitch, roll = self.__find_pose(landmarks)
             
+            if self.brisque:
+                scores = brisque.score(Img.open(self.images[idx]))
+            else:
+                scores = "N/A"
+            
             metadata={
 #                'Image': self.images[idx],
-                'Image': self.frames[idx],
+#                'Image': self.frames[idx],
 #                'Image': "https://en.wikipedia.org/wiki/File:American_Eskimo_Dog.jpg", #self.images[idx], #self.frames[idx],
-                'Name': self.images[idx], #self.names[idx],
+                'Name': os.path.basename(self.names[idx]), #self.images[idx]
                 'Height': self.frames[idx].shape[0],
                 'Width': self.frames[idx].shape[1],
-                'Quality': brisque.score(Img.open(self.images[idx])),
+                'Quality': scores, #'', #brisque.score(Img.open(self.images[idx])),
                 'Yaw': yaw,
                 'Pitch': pitch,
                 'Roll': roll,
@@ -361,6 +361,7 @@ class Cluster(object):
             # TODO: make dataframe
             # image, name, profile category, yaw, pitch, roll, confidence, bounding box, left eye, right eye, nose, mouth left, mouth right
 
+#    @profile(stream=fp)
     def DBSCAN_sort(self):
         """
         Function to form clusters using the DBSCAN clustering algorithm
@@ -393,6 +394,7 @@ class Cluster(object):
 
             shutil.copy(self.detected_images[i], self.cluster_path + str(labels[i]))
 
+#    @profile(stream=fp)
     def cluster_sort(self):
         """
         Function to form clusters based on the Cosine Similarity Matrix
@@ -457,6 +459,7 @@ class Cluster(object):
                 shutil.copy(self.images[idx], self.cluster_image_path)
                 #st.write('NULL FOUND!', idx)                
 
+#    @profile(stream=fp)
     def pose_sort(self):
         """
         Grab images in each cluster folder and sort by pose.
@@ -548,6 +551,7 @@ class Cluster(object):
                     # shutil.copy(names[idx], folder_left)
                     shutil.move(names[idx], folder_left)
 
+#    @profile(stream=fp)
     def copy_face_images(self):
         """
         Copy uploaded images to a subfolder.
@@ -567,6 +571,7 @@ class Cluster(object):
                 
         del self.uploaded_files
 
+#    @profile(stream=fp)
     def run(self):
         """
         """        
@@ -577,6 +582,14 @@ class Cluster(object):
             page_title = 'BATMAN+',
             page_icon = Img.open("assets/baticon.png") #':eyes:' # https://emojipedia.org/shortcodes/
         )
+
+        # initialize models
+        #self.facenet = self.__load_facenet_model()
+        #self.mtcnn = self.__load_mtcnn_model()
+
+        # use for low-side or streamlit cloud, otherwise comment out - this will auto-download models
+        self.mtcnn = MTCNN(self.device)
+        self.facenet = FaceNet(self.device)
 
         # set title and format
         st.markdown(""" <style> .font {font-size:60px ; font-family: 'Sans-serif'; color: blue;} </style> """, unsafe_allow_html=True)
@@ -595,8 +608,10 @@ class Cluster(object):
         col1, col2 = st.sidebar.columns(2)
         with col1:
             self.pose = st.checkbox("Sort by Pose", value=False, help="Sort images by pose.")
+            self.brisque = st.checkbox("IQA Score", value=False, help="Calculate the image quality assessement score using the BRISQUE algorithm. Warning: Using this will impact performance speed.")
         with col2:
             self.cluster = st.checkbox("Cluster", value=True, help="Cluster images using DBSCAN algorithm.")
+            self.similarity = st.checkbox("Similarity Matrix", value=False, help="Display similarity matrix of processed images.")
 
         # media input
         st.subheader('Image Files')
@@ -618,3 +633,23 @@ class Cluster(object):
 if __name__ == '__main__':
     c = Cluster()
     c.run()
+
+    #from pyinstrument import Profiler
+    #c = Cluster()
+    #profiler = Profiler()
+    #profiler.start()
+    #c.run()
+    #profiler.stop()
+    #profiler.print()
+  
+    #from pycallgraph import PyCallGraph
+    #from pycallgraph import Config
+    #from pycallgraph import GlobbingFilter
+    #from pycallgraph.output import GraphvizOutput
+    #config = Config(max_depth=3)
+    #config.trace_filter = GlobbingFilter(exclude=['pycallgraph.*', '_*'])
+    #graphviz = GraphvizOutput()
+    #graphviz.output_file = 'cp_call_graph_t01.png'
+    #c = Cluster()
+    #with PyCallGraph(output=graphviz, config=config):
+    #    c.run()

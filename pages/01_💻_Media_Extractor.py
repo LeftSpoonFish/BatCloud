@@ -14,24 +14,28 @@ import magic
 import datetime
 import cv2
 import pyexiv2 as pex
-import imagehash
 import configparser
 import warnings
+import torch
 
-#from streamlit_option_menu import option_menu
 from stqdm import stqdm
 from st_aggrid import AgGrid #, GridOptionsBuilder, JsCode, GridUpdateMode
 from zipfile import ZipFile
 from PIL import Image as Img
 from mtcnn import MTCNN
-
 from utils import crop_face
 
+# https://blog.streamlit.io/3-steps-to-fix-app-memory-leaks/
+#from memory_profiler import profile
+#fp = open('safe/memory_profiler_01ME.log', 'w+')
+
+# supress warnings
 warnings.simplefilter(action='ignore', category=FutureWarning)
 
 class MediaExtractor(object):
     """
     """
+#    @profile(stream=fp)
     def __init__(self):
         # supported file types
         self.supported_filetypes = [
@@ -54,11 +58,15 @@ class MediaExtractor(object):
         # determine file type
         self.mime = magic.Magic(mime=True, uncompress=True)
         
-        # default directory location of extracted results
-        #self.output_folder = r'.\\output'
-        
+        # determine device to use for face detection
         #self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
+        # MTCNN is used for face detection
+        self.detector = MTCNN() # uses mtcnn, not dface version
+        #self.detector = MTCNN(self.device) # uses the dface version of mtcnn
+
+
+#    @profile(stream=fp)
     def not_extract(self, file):
         """
         Unsupported file type
@@ -90,6 +98,7 @@ class MediaExtractor(object):
         else:
             st.info(f"{file.name} is not a supported file type.")
                 
+#    @profile(stream=fp)
     def mso_extract(self, file, location):
         """
         Extract Microsoft Office documents from 2004 to present. Current
@@ -97,7 +106,10 @@ class MediaExtractor(object):
         """
         # TODO: make a utility function
         # read enough of the data to determine the mime typ of the file
-        file_type = self.mime.from_buffer(file.read(2048))
+        #print(file.read(2048))
+        #file.seek(0,0)
+        buffer = file.read(2048)
+        file_type = self.mime.from_buffer(buffer)
         file.seek(0,0)
         
         # TODO: make a utility function
@@ -194,6 +206,7 @@ class MediaExtractor(object):
 
         return dest
 
+#    @profile(stream=fp)
     def zip_extract(self, file, location):
         """
         https://docs.python.org/3/library/zipfile.html#module-zipfile
@@ -217,8 +230,9 @@ class MediaExtractor(object):
                            gui=True):
             #for zipinfo in thezip.infolist():
                 zipinfo = thezip.filelist[i]
-                #st.write(zipinfo.filename)
                 file_type = os.path.splitext(zipinfo.filename)[1][1:]
+
+                #st.write(zipinfo.filename)
 
                 if file_type in ['doc', 'dot']:
                     st.info(f"{zipinfo.filename} is an older file format (Word 1997-2003). Please convert to docx or pdf from Microsoft Word. Open document then click save as.")
@@ -257,11 +271,13 @@ class MediaExtractor(object):
                         self.__get_images(imgpath)
 
                 else:
-                    st.info(f"Ignoring {zipinfo.filename} as it is not a supported file_type")
+                    pass
+                    #st.info(f"Ignoring {zipinfo.filename} as it is not a supported file_type")
 
         metadata = {'File': file_name, 'Type': 'application/zip', 'Size': file_size, 'Count': len(thezip.infolist())}
         self.extract_df = self.extract_df.append(metadata, ignore_index=True)
 
+#    @profile(stream=fp)
     def pdf_extract(self, file, location):
         """
         https://pymupdf.readthedocs.io/en/latest/index.html
@@ -340,11 +356,22 @@ class MediaExtractor(object):
         
         return document_path
 
+#    @profile(stream=fp)
     def vid_extract(self, file, location):
         """
         """
+        # create extraction folder
+        subfolder = os.path.splitext(file.name)[0] + '_video/extracted/'
+        video_path = os.path.abspath(location) + '/' + subfolder
+        if os.path.exists(video_path):
+            shutil.rmtree(video_path)
+            os.makedirs(video_path)
+        else:
+            os.makedirs(video_path)
+
         # copy buffer to output folder
         video_file = os.path.abspath(self.output_folder) + '/' + file.name        
+        #st.write(video_file)
         with open(video_file, "wb") as f:
             f.write(file.read())
 
@@ -358,15 +385,6 @@ class MediaExtractor(object):
         success, image = vidcap.read()
         count = 0
         max_frames = int(vidcap.get(cv2.CAP_PROP_FRAME_COUNT))
-
-        # create extraction folder
-        subfolder = os.path.splitext(file_name)[0] + '_video/extracted/'
-        video_path = os.path.abspath(location) + '/' + subfolder
-        if os.path.exists(video_path):
-            shutil.rmtree(video_path)
-            os.makedirs(video_path)
-        else:
-            os.makedirs(video_path)
 
         # extract frames from video as jpg
         for i in stqdm(range(max_frames),
@@ -401,6 +419,7 @@ class MediaExtractor(object):
 
         return video_path
 
+#    @profile(stream=fp)
     def img_extract(self, file, location):
         """
         """
@@ -432,6 +451,7 @@ class MediaExtractor(object):
             
         return imgpath
 
+#    @profile(stream=fp)
     def __get_media(self, output_folder):
         """
         """
@@ -439,15 +459,16 @@ class MediaExtractor(object):
             files = os.listdir(output_folder)
 
             for f in files:
+                imgfile = output_folder + '/' + f
                 try:
-                    im = Img.open(output_folder + '/' + f)
+                    im = Img.open(imgfile)
                 except Exception as e:
                     st.error(e)
                     break
 
                 # check for EXIV data
                 try:
-                    pimg = pex.Image(output_folder + '/' + f)
+                    pimg = pex.Image(imgfile)
                     data = pimg.read_exif()
                     pimg.close()
 
@@ -461,6 +482,9 @@ class MediaExtractor(object):
                     st.error(e)
                     break
 
+                cropped_hash = cv2.img_hash.averageHash(cv2.imread(imgfile))[0]
+                cropped_hash = ''.join(hex(i)[2:] for i in cropped_hash)
+
                 # using imagehash library instead of cv2.img_hash because we opened the file with PIL library
                 # TODO: Should we use one or the other, or does it really matter which is used?
                 metadata = {'Media': f,
@@ -470,11 +494,13 @@ class MediaExtractor(object):
                             'Width': im.width,
                             'Format': im.format,
                             'Mode': im.mode,
-                            'Hash': imagehash.average_hash(im)}
+                            #'Hash': imagehash.average_hash(im)}
+                            'Hash': cropped_hash}
                 self.media_df = self.media_df.append(metadata, ignore_index=True)
         except:
             pass
 
+#    @profile(stream=fp)
     def __get_images(self, output_folder):
         """
         The detector returns a list of JSON objects. Each JSON object contains
@@ -489,21 +515,16 @@ class MediaExtractor(object):
             * 'mouth_right'
           Each keypoint is identified by a pixel position (x, y).
         """
-        # MTCNN is used for face detection
-        detector = MTCNN() # uses mtcnn, not dface version
-        # detector = MTCNN(self.device) # uses the dface version of mtcnn
-
-        # media_files = glob.glob(output_folder + '\\*')
         media_files = glob.glob(output_folder + '*.*')
 
-        face_count = 0
-        
+        face_count = 0        
         max_files = len(media_files)
 
         # set image path
         output_folder = output_folder.split('extracted')[0]
         image_path = output_folder + 'cropped/'
         detection_path = output_folder + 'detected/'
+
         if os.path.exists(image_path):
             shutil.rmtree(image_path)
             os.mkdir(image_path)
@@ -525,7 +546,7 @@ class MediaExtractor(object):
                 image = cv2.imread(f)
                 detection_image = image.copy()
                 bgr = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-                detections = detector.detect_faces(bgr)
+                detections = self.detector.detect_faces(bgr)
                 
                 # filtering detections with confidence greater than confidence threshold
                 for idx, det in enumerate(detections):
@@ -572,7 +593,6 @@ class MediaExtractor(object):
                             cropped_image_name = image_path + os.path.splitext(os.path.basename(f))[0] + '-' + f'image_{idx}' + '.jpg'
 
                         cv2.imwrite(cropped_image_name, cropped_image)
-                        
 
                         # convert cropped image into an image hash using cv2
                         cropped_hash = cv2.img_hash.averageHash(cropped_image)[0]
@@ -601,7 +621,8 @@ class MediaExtractor(object):
 
             except Exception as e:
                 st.error(e)
-
+                
+#    @profile(stream=fp)
     def run(self):
         """
         """
@@ -612,7 +633,7 @@ class MediaExtractor(object):
             page_title = 'Media Extractor',
             page_icon = Img.open(r"./assets/baticon.png") #':eyes:' # https://emojipedia.org/shortcodes/
         )
-
+        
         #sidebar settings
         st.sidebar.subheader('Media Extractor Settings')
         self.output_folder = st.sidebar.text_input('Output Directory:', value=os.path.abspath(r"output"), key='media_output', help="Output directory where extracted, detected, and cropped images are stored.")
@@ -648,71 +669,73 @@ class MediaExtractor(object):
         st.markdown(""" <style> .font {font-size:60px ; font-family: 'Sans-serif'; color: blue;} </style> """, unsafe_allow_html=True)
         st.markdown('<p class="font">Biometric Analysis Tool for Media ANalytics</p>', unsafe_allow_html=True)
 
-#        st.subheader('Media Input')
-#        self.uploaded_files = st.file_uploader("Choose a media file (image, video, or document)", type=self.supported_filetypes, accept_multiple_files=True)
+        st.subheader('Media Input')
+        self.uploaded_files = st.file_uploader("Choose a media file (image, video, or document)", type=self.supported_filetypes, accept_multiple_files=True)
 
-        with st.form("my-form", clear_on_submit=True):
-            self.uploaded_files = st.file_uploader("Choose a media file (image, video, or document)", type=self.supported_filetypes, accept_multiple_files=True)
-            submitted = st.form_submit_button("UPLOAD!")
+#        with st.form("my-form", clear_on_submit=False):
+#            self.uploaded_files = st.file_uploader("Choose a media file (image, video, or document)", type=self.supported_filetypes, accept_multiple_files=True)
+#            submitted = st.form_submit_button("UPLOAD!")
             #st.write(submitted, self.uploaded_files)
-
-#            if submitted and self.uploaded_files is not None:
-            if submitted and self.uploaded_files != []:
-                max_files = len(self.uploaded_files)
-
-                for i in stqdm(range(max_files),
-                                #st_container=st.sidebar,
-                                leave=True,
-                                desc='Media Extraction: ',
-                                gui=True):
-
-                    uploaded_file = self.uploaded_files[i] 
-                    #st.sidebar.write(f"Processing File: {uploaded_file.name}")
-
-                    # split filename to get extension and remove the '.'
-                    file_type = os.path.splitext(uploaded_file.name)[1][1:]
-
-                    if file_type in ['doc', 'dot']:
-                        self.not_extract(uploaded_file)
-
-                    elif file_type in ['ppt', 'pot']:
-                        self.not_extract(uploaded_file)
                         
-                    elif file_type in ['xls', 'xlt']:
-                        self.not_extract(uploaded_file)
+##            if submitted and self.uploaded_files is not None:
+#            if submitted and self.uploaded_files != []:
+        if self.uploaded_files != []:
+            max_files = len(self.uploaded_files)
+            #st.write(f'max_files: {max_files}')
 
-                    elif file_type in ['pdf']:
-                        imgpath = self.pdf_extract(uploaded_file, self.output_folder)
-                        self.__get_media(imgpath)
-                        self.__get_images(imgpath)
+            for i in stqdm(range(max_files),
+                            #st_container=st.sidebar,
+                            leave=True,
+                            desc='Media Extraction: ',
+                            gui=True):
 
-                    elif file_type in ['zip']:
-                        self.zip_extract(uploaded_file, self.output_folder)
-                        
-                    elif file_type in ['docx', 'docm', 'dotm', 'dotx', 'xlsx',
-                                       'xlsb', 'xlsm', 'xltm', 'xltx', 'potx',
-                                       'ppsm', 'ppsx', 'pptm', 'pptx', 'potm']:
-                        imgpath = self.mso_extract(uploaded_file, self.output_folder)
-                        self.__get_media(imgpath)
-                        self.__get_images(imgpath)
+                uploaded_file = self.uploaded_files[i] 
+                st.sidebar.write(f"Processing File: {uploaded_file.name}")
 
-                    elif file_type in ['mp4', 'avi', 'webm', 'wmv']:                
-                        imgpath = self.vid_extract(uploaded_file, self.output_folder)
-                        self.__get_media(imgpath)
-                        self.__get_images(imgpath)
-                        
-                    elif file_type in file_type in ['jpeg', 'jpg', 'png', 'gif', 'bmp', 'tiff']:
-                        imgpath = self.img_extract(uploaded_file, self.output_folder)
-                        self.__get_media(imgpath)
-                        self.__get_images(imgpath)
+                # split filename to get extension and remove the '.'
+                file_type = os.path.splitext(uploaded_file.name)[1][1:]
 
-                    else:
-                        self.not_extract(uploaded_file)
-                        
-                st.success('Process completed')
-                        
-            else:
-                st.info('Please select files to be processed.')
+                if file_type in ['doc', 'dot']:
+                    self.not_extract(uploaded_file)
+
+                elif file_type in ['ppt', 'pot']:
+                    self.not_extract(uploaded_file)
+                    
+                elif file_type in ['xls', 'xlt']:
+                    self.not_extract(uploaded_file)
+
+                elif file_type in ['pdf']:
+                    imgpath = self.pdf_extract(uploaded_file, self.output_folder)
+                    self.__get_media(imgpath)
+                    self.__get_images(imgpath)
+
+                elif file_type in ['zip']:
+                    self.zip_extract(uploaded_file, self.output_folder)
+                    
+                elif file_type in ['docx', 'docm', 'dotm', 'dotx', 'xlsx',
+                                   'xlsb', 'xlsm', 'xltm', 'xltx', 'potx',
+                                   'ppsm', 'ppsx', 'pptm', 'pptx', 'potm']:
+                    imgpath = self.mso_extract(uploaded_file, self.output_folder)
+                    self.__get_media(imgpath)
+                    self.__get_images(imgpath)
+
+                elif file_type in ['mp4', 'avi', 'webm', 'wmv']:                
+                    imgpath = self.vid_extract(uploaded_file, self.output_folder)
+                    self.__get_media(imgpath)
+                    self.__get_images(imgpath)
+                    
+                elif file_type in file_type in ['jpeg', 'jpg', 'png', 'gif', 'bmp', 'tiff']:
+                    imgpath = self.img_extract(uploaded_file, self.output_folder)
+                    self.__get_media(imgpath)
+                    self.__get_images(imgpath)
+
+                else:
+                    self.not_extract(uploaded_file)
+                    
+            st.success('Process completed')
+                    
+        else:
+            st.info('Please select files to be processed.')
 
         # create metadata table
         if not self.extract_df.empty:
@@ -729,8 +752,28 @@ class MediaExtractor(object):
             st.subheader("Images")
             AgGrid(self.image_df, fit_columns_on_grid_load=True)
             st.info(f"* Found a total of {len(self.image_df)} face(s) in media files")
-            
+
 if __name__ == '__main__':
-    mex = MediaExtractor()
+    mex = MediaExtractor()    
     mex.run()
+
+    #from pyinstrument import Profiler
+    #mex = MediaExtractor()    
+    #profiler = Profiler()
+    #profiler.start()
+    #mex.run()
+    #profiler.stop()
+    #profiler.print()
+
+    #from pycallgraph import PyCallGraph
+    #from pycallgraph import Config
+    #from pycallgraph import GlobbingFilter
+    #from pycallgraph.output import GraphvizOutput
+    #config = Config(max_depth=3)
+    #config.trace_filter = GlobbingFilter(exclude=['pycallgraph.*', 'AgGridReturn.*', '_*', '<*>'])
+    #graphviz = GraphvizOutput()
+    #graphviz.output_file = 'me_call_graph_t01.png'
+    #mex = MediaExtractor()    
+    #with PyCallGraph(output=graphviz, config=config):
+    #    mex.run()
 
