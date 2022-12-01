@@ -1,3 +1,4 @@
 exiftool
 libmagic1
 python3-opencv
+default-jre
