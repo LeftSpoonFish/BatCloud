@@ -159,9 +159,18 @@ class FaceExpressionAnalysis(object):
     def facial_action_units(self):
         """
         """
-        #detector = Detector(au_model='svm', emotion_model='fer', face_model='mtcnn')
-        detector = Detector()
+        detector = Detector(au_model='svm',
+                            emotion_model='resmasknet',
+                            face_model='mtcnn',
+                            facepose_model='img2pose',
+                            landmark_model='mobilefacenet')
 
+        #detector = Detector(au_model='svm',
+        #                    emotion_model='fer',
+        #                    face_model='mtcnn',
+        #                    facepose_model='img2pose',
+        #                    landmark_model='mobilefacenet')
+        
         self.frames, self.names = self.__get_images()
         
         #detector.change_model(face_model="MTCNN")

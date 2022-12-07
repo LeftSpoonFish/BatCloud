@@ -217,6 +217,7 @@ class GEOTRAX(object):
 
                 # get file extension
                 _, ext = os.path.splitext(location_info.SourceFile)
+                ext = ext.lower()
                 
                 # check if image file or document
                 if ext in ['.jpg', '.png']:
@@ -245,7 +246,7 @@ class GEOTRAX(object):
                                                  'File:ImageWidth',
                                                  'File:ImageHeight',
                                                  'Composite:ImageSize',
-                                                 'Composite:GPSDateTime',
+                                                 #'Composite:GPSDateTime',
                                                  'Composite:GPSAltitude',
                                                  'Composite:GPSLatitude',
                                                  'Composite:GPSLongitude',
@@ -264,7 +265,7 @@ class GEOTRAX(object):
                                                         'File:ImageWidth':'image_width',
                                                         'File:ImageHeight':'image_height',
                                                         'Composite:ImageSize':'image_size',
-                                                        'Composite:GPSDateTime':'date_time',
+                                                        #'Composite:GPSDateTime':'date_time',
                                                         'Composite:GPSAltitude':'altitude',
                                                         'Composite:GPSLatitude':'latitude',
                                                         'Composite:GPSLongitude':'longitude',
