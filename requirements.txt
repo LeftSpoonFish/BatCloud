@@ -9,7 +9,6 @@ python-magic
 pyexiv2              
 stqdm                
 streamlit-aggrid     
-terran
 streamlit-terran-timeline
 mtcnn                
 tensorflow           
@@ -17,10 +16,11 @@ libsvm
 image-quality        
 dface                
 torch                
-torchvision          
-torchaudio           
-fer                  
-py-feat              
+torchvision         
+torchaudio      
+fer
+nltools
+ffmpeg-python                  
 basicsr              
 gfpgan               
 PyExifTool           
@@ -31,4 +31,3 @@ tika
 geopy                
 perdido
 en-core-web-sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.4.0/en_core_web_sm-3.4.0-py3-none-any.whl
-imagehash

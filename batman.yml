@@ -5,12 +5,12 @@
 # conda list -e > requirements_conda.txt  - list of dependencies and version numbers from conda
 # pip freeze > requirements_pip.txt       - list of dependencies and version numbers from pip
 #
-name: BatmanVM-py310          # ENVIRONMENT NAME
+name: BatmanVM-py311          # ENVIRONMENT NAME
 channels:
 - defaults
 - conda-forge
 dependencies:                 # EVERYTHING UNDER THIS IS INSTALLED BY CONDA
-- python=3.10
+- python=3.11
 - pip
 - pandas
 - numpy
@@ -61,3 +61,8 @@ dependencies:                 # EVERYTHING UNDER THIS IS INSTALLED BY CONDA
 # In streamlit-terran-timeline python library in sitelibs
 # 1. Modify models.py
 #   - replace .view with .reshape
+
+# Models required for use with Terran:
+# - https://github.com/nagitsu/terran/releases/download/0.0.1/retinaface-mnet.pth    => face detection
+# - https://github.com/nagitsu/terran/releases/download/0.0.1/openpose-body.pth      => pose esitmation - openpose (2017 version)
+# - https://github.com/nagitsu/terran/releases/download/0.0.1/arcface-resnet100.pth  => face recognition
