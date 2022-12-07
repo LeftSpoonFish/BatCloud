@@ -1,0 +1,68 @@
+#
+# conda env create -f <filename>.yml - this creates an environment 
+# conda env remove -n <env>          - this removes an environment
+#
+# conda list -e > requirements_conda.txt  - list of dependencies and version numbers from conda
+# pip freeze > requirements_pip.txt       - list of dependencies and version numbers from pip
+#
+name: BatmanVM-py311          # ENVIRONMENT NAME
+channels:
+- defaults
+- conda-forge
+dependencies:                 # EVERYTHING UNDER THIS IS INSTALLED BY CONDA
+- python=3.11
+- pip
+- pandas
+- numpy
+- scikit-learn
+#- pytorch                    # conda install pytorch torchvision torchaudio pytorch-cuda=11.7 -c pytorch -c nvidia
+#- torchvision
+#- torchaudio
+#- pytorch-cuda=11.7
+- exiftool                    # Geotrax
+- pip:                        # EVERYTHING UNDER THIS IS INSTALLED BY PIP
+  - opencv-contrib-python     # Media Extractor
+  - streamlit                 # Media Extractor
+  - PyMuPDF                   # Media Extractor
+  - python-magic              # Media Extractor
+#  - python-magic-bin         # Media Extractor; comment out if using Linux/MacOS/WSL and run 'sudo apt-get install libmagic1' instead
+  - pyexiv2                   # Media Extractor
+  - stqdm                     # Media Extractor
+  - streamlit-aggrid          # Media Extractor
+  - mtcnn                     # Media Extractor
+  - tensorflow                # Media Extractor
+  - terran                    # Video Timeline
+  - streamlit-terran-timeline # Video Timeline
+  - libsvm                    # Cluster & Pose
+  - image-quality             # Cluster & Pose
+  - dface                     # Cluster & Pose
+  - torch                     # Cluster & Pose
+  - torchvision               # Cluster & Pose
+  - torchaudio                # Cluster & Pose
+  - fer                       # Face Analysis Expression
+  - py-feat                   # Face Analysis Expression
+  - basicsr                   # Super Resolution
+  - gfpgan                    # Super Resolution
+  - PyExifTool                # Geotrax
+  - streamlit-folium          # Geotrax
+  - locationtagger            # Geotrax
+  - geopandas                 # Geotrax
+  - tika                      # Geotrax
+  - geopy                     # Geotrax
+  - perdido                   # Geotrax
+  - en-core-web-sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.4.0/en_core_web_sm-3.4.0-py3-none-any.whl
+
+# This is likely a manual install. Spacy is used on the high-side, so the
+# en_core_web_sm/md files are retrieved in some manner (e.g. FOSS, SOTA).
+#
+#python -m spacy download en_core_web_sm
+#python -m spacy download en_core_web_md
+
+# In streamlit-terran-timeline python library in sitelibs
+# 1. Modify models.py
+#   - replace .view with .reshape
+
+# Models required for use with Terran:
+# - https://github.com/nagitsu/terran/releases/download/0.0.1/retinaface-mnet.pth    => face detection
+# - https://github.com/nagitsu/terran/releases/download/0.0.1/openpose-body.pth      => pose esitmation - openpose (2017 version)
+# - https://github.com/nagitsu/terran/releases/download/0.0.1/arcface-resnet100.pth  => face recognition
